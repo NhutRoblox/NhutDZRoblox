@@ -10,13 +10,17 @@ local Window = Rayfield:CreateWindow({
 })
 
 local MainTab = Window:CreateTab("Main", 4483362458)
-local AimTab = Window:CreateTab("Aimbot", 4483362458)
+local PlayersTab = Window:CreateTab("Players", 4483362458)
+local VisualTab = Window:CreateTab("Visual", 4483362458) -- Gộp ESP & Hitbox
 
 -- ==================== SETTINGS ====================
 local Settings = {
     ESP = {Enabled = false, Tracers = true, Distance = true, TeamCheck = false},
     Hitbox = {Enabled = false, Size = 12, TeamCheck = false, OriginalSizes = {}},
-    Aim = {Enabled = false, TeamCheck = false, Part = "HumanoidRootPart", Fov = 150, FovVisible = true, Smoothness = 1, IsTargeting = false}
+    Aim = {Enabled = false, TeamCheck = false, Part = "HumanoidRootPart", Fov = 150, FovVisible = true, Smoothness = 1, IsTargeting = false},
+    Speed = {Enabled = false, Value = 16},
+    Fly = {Enabled = false, Speed = 80},
+    Jump = {Enabled = false, Value = 50}
 }
 
 local FOLDER_NAME = "NhutESP"
@@ -32,6 +36,154 @@ FovCircle.Color = Color3.fromRGB(255, 0, 0)
 FovCircle.Thickness = 1.5
 FovCircle.NumSides = 64
 FovCircle.Filled = false
+
+-- ==================== FLY LOGIC - NEW ====================
+local flying = false
+local bv = nil
+local bg = nil
+local flyLoop = nil
+
+local function StartFly()
+    if flying then 
+        StopFly()
+        task.wait(0.1)
+    end
+    
+    local char = LocalPlayer.Character
+    if not char then
+        task.wait(0.5)
+        char = LocalPlayer.Character
+        if not char then 
+            warn("Không tìm thấy Character!")
+            return 
+        end
+    end
+    
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    if not hum or not hrp then 
+        warn("Không tìm thấy Humanoid hoặc HumanoidRootPart!")
+        return 
+    end
+    
+    print("🚀 BẬT FLY - Đang bay...")
+    
+    flying = true
+    
+    -- Tạo BodyVelocity
+    bv = Instance.new("BodyVelocity")
+    bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    bv.Parent = hrp
+    
+    -- Tạo BodyGyro
+    bg = Instance.new("BodyGyro")
+    bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bg.P = 10000
+    bg.Parent = hrp
+    
+    -- Noclip
+    hrp.CanCollide = false
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part ~= hrp then
+            part.CanCollide = false
+        end
+    end
+    
+    -- Fly loop
+    flyLoop = RunService.RenderStepped:Connect(function()
+        if not Settings.Fly.Enabled then
+            StopFly()
+            return
+        end
+        
+        local char = LocalPlayer.Character
+        if not char or not char.Parent then
+            StopFly()
+            return
+        end
+        
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        
+        if not hum or not hrp or not bv or not bg then
+            StopFly()
+            return
+        end
+        
+        local cam = workspace.CurrentCamera
+        local move = hum.MoveDirection
+        
+        bg.CFrame = cam.CFrame
+        
+        if move.Magnitude > 0 then
+            local direction = Vector3.new(move.X, cam.CFrame.LookVector.Y, move.Z)
+            bv.Velocity = direction.Unit * Settings.Fly.Speed
+        else
+            bv.Velocity = Vector3.zero
+        end
+        
+        -- Giữ noclip
+        hrp.CanCollide = false
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part ~= hrp then
+                part.CanCollide = false
+            end
+        end
+    end)
+end
+
+local function StopFly()
+    if not flying then return end
+    print("🛑 TẮT FLY")
+    
+    flying = false
+    
+    if flyLoop then
+        flyLoop:Disconnect()
+        flyLoop = nil
+    end
+    
+    local char = LocalPlayer.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        
+        if bv then
+            bv:Destroy()
+            bv = nil
+        end
+        
+        if bg then
+            bg:Destroy()
+            bg = nil
+        end
+        
+        if hrp then
+            hrp.CanCollide = true
+            hrp.Velocity = Vector3.new(0, 0, 0)
+            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        end
+        
+        -- Reset collision
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+end
+
+-- Xử lý respawn
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(1)
+    if Settings.Fly.Enabled then
+        StartFly()
+    end
+end)
+
+LocalPlayer.CharacterRemoving:Connect(function()
+    StopFly()
+end)
 
 -- ==================== UTILITY ====================
 local function GetLocalRoot()
@@ -49,7 +201,32 @@ local function IsTeammate(plr)
     return LocalPlayer.Team == plr.Team and LocalPlayer.Team ~= nil
 end
 
--- ==================== AIMBOT LOGIC (FORCE REWRITE) ====================
+-- ==================== SPEED & JUMP LOGIC ====================
+task.spawn(function()
+    while task.wait(0.1) do
+        pcall(function()
+            local char = LocalPlayer.Character
+            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+            if humanoid and not Settings.Fly.Enabled then
+                -- Speed
+                if Settings.Speed.Enabled then
+                    humanoid.WalkSpeed = Settings.Speed.Value
+                elseif humanoid.WalkSpeed ~= 16 then
+                    humanoid.WalkSpeed = 16
+                end
+                
+                -- Jump
+                if Settings.Jump.Enabled then
+                    humanoid.JumpPower = Settings.Jump.Value
+                elseif humanoid.JumpPower ~= 50 then
+                    humanoid.JumpPower = 50
+                end
+            end
+        end)
+    end
+end)
+
+-- ==================== AIMBOT LOGIC ====================
 local function GetClosestPlayerToCenter()
     local closestPlayer = nil
     local shortestDistance = Settings.Aim.Fov
@@ -75,7 +252,6 @@ local function GetClosestPlayerToCenter()
     return closestPlayer
 end
 
--- Nhận diện nhấn giữ chuột phải để Aimbot
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
@@ -89,7 +265,6 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- Vòng lặp vẽ FOV cố định
 RunService.RenderStepped:Connect(function()
     local centerScreen = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     FovCircle.Visible = Settings.Aim.Enabled and Settings.Aim.FovVisible
@@ -97,18 +272,14 @@ RunService.RenderStepped:Connect(function()
     FovCircle.Position = centerScreen
 end)
 
--- GIẢI PHÁP TRIỆT ĐỂ: Ép luồng ưu tiên Camera cao hơn hệ thống của Game (Bypass đè CFrame)
 RunService:BindToRenderStep("NhutAimbotForce", Enum.RenderPriority.Camera.Value + 1, function()
     if Settings.Aim.Enabled and Settings.Aim.IsTargeting then
         local targetPlr = GetClosestPlayerToCenter()
         if targetPlr and targetPlr.Character then
             local targetPart = targetPlr.Character:FindFirstChild(Settings.Aim.Part)
             if targetPart then
-                -- Tính toán hướng xoay ép thẳng vào mục tiêu
                 local currentCFrame = Camera.CFrame
                 local targetCFrame = CFrame.lookAt(currentCFrame.Position, targetPart.Position)
-                
-                -- Thực hiện Lerp mượt mà dựa trên độ ưu tiên cao hơn game
                 Camera.CFrame = currentCFrame:Lerp(targetCFrame, 1 / Settings.Aim.Smoothness)
             end
         end
@@ -256,45 +427,176 @@ Players.PlayerAdded:Connect(function(plr)
 end)
 Players.PlayerRemoving:Connect(CleanupPlayer)
 
--- ==================== UI TAB MAIN ====================
-MainTab:CreateToggle({Name = "ESP + Tia Chỉ", CurrentValue = false, Callback = function(v)
-    Settings.ESP.Enabled = v
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if not v and plr.Character and plr.Character:FindFirstChild(FOLDER_NAME) then plr.Character[FOLDER_NAME]:Destroy() else CreateESP(plr) end
+-- ==================== UI ====================
+-- TAB MAIN
+MainTab:CreateToggle({
+    Name = "Fly", 
+    CurrentValue = false, 
+    Callback = function(v)
+        Settings.Fly.Enabled = v
+        if v then
+            StartFly()
+        else
+            StopFly()
+        end
     end
-end})
-MainTab:CreateToggle({Name = "Team Check (ESP)", CurrentValue = false, Callback = function(v) Settings.ESP.TeamCheck = v end})
-MainTab:CreateToggle({Name = "Distance ESP", CurrentValue = true, Callback = function(v) Settings.ESP.Distance = v end})
-MainTab:CreateToggle({Name = "Tracers", CurrentValue = true, Callback = function(v) Settings.ESP.Tracers = v end})
-MainTab:CreateToggle({Name = "Hitbox Expander", CurrentValue = false, Callback = function(v) Settings.Hitbox.Enabled = v UpdateAllHitboxes() end})
-MainTab:CreateSlider({Name = "Hitbox Size", Range = {5, 100}, Increment = 1, CurrentValue = 12, Callback = function(v) Settings.Hitbox.Size = v if Settings.Hitbox.Enabled then UpdateAllHitboxes() end end})
-MainTab:CreateToggle({Name = "Hitbox Team Check", CurrentValue = false, Callback = function(v) Settings.Hitbox.TeamCheck = v UpdateAllHitboxes() end})
+})
 
--- made by yee_kunkun(my roblox user name haha)
-local fov = 136 -- Đây là FOV mặc định ban đầu
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local Players = game:GetService("Players")
-local Cam = workspace.CurrentCamera
-local Player = Players.LocalPlayer
+MainTab:CreateSlider({
+    Name = "Fly Speed", 
+    Range = {10, 250}, 
+    Increment = 5, 
+    CurrentValue = 80, 
+    Callback = function(v)
+        Settings.Fly.Speed = v
+    end
+})
 
+-- TAB PLAYERS
+PlayersTab:CreateToggle({
+    Name = "Speed Hack", 
+    CurrentValue = false, 
+    Callback = function(v)
+        Settings.Speed.Enabled = v
+        local char = LocalPlayer.Character
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        if humanoid and not Settings.Fly.Enabled then
+            humanoid.WalkSpeed = v and Settings.Speed.Value or 16
+        end
+    end
+})
+
+PlayersTab:CreateSlider({
+    Name = "Speed Value", 
+    Range = {16, 250}, 
+    Increment = 1, 
+    CurrentValue = 16, 
+    Callback = function(v)
+        Settings.Speed.Value = v
+        local char = LocalPlayer.Character
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        if humanoid and Settings.Speed.Enabled and not Settings.Fly.Enabled then
+            humanoid.WalkSpeed = v
+        end
+    end
+})
+
+PlayersTab:CreateToggle({
+    Name = "Jump Hack", 
+    CurrentValue = false, 
+    Callback = function(v)
+        Settings.Jump.Enabled = v
+        local char = LocalPlayer.Character
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        if humanoid and not Settings.Fly.Enabled then
+            humanoid.JumpPower = v and Settings.Jump.Value or 50
+        end
+    end
+})
+
+PlayersTab:CreateSlider({
+    Name = "Jump Power", 
+    Range = {50, 500}, 
+    Increment = 5, 
+    CurrentValue = 50, 
+    Callback = function(v)
+        Settings.Jump.Value = v
+        local char = LocalPlayer.Character
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        if humanoid and Settings.Jump.Enabled and not Settings.Fly.Enabled then
+            humanoid.JumpPower = v
+        end
+    end
+})
+
+-- TAB VISUAL (ESP + HITBOX)
+VisualTab:CreateToggle({
+    Name = "ESP", 
+    CurrentValue = false, 
+    Callback = function(v)
+        Settings.ESP.Enabled = v
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if not v and plr.Character and plr.Character:FindFirstChild(FOLDER_NAME) then 
+                plr.Character[FOLDER_NAME]:Destroy() 
+            else 
+                CreateESP(plr) 
+            end
+        end
+    end
+})
+
+VisualTab:CreateToggle({
+    Name = "Team Check (ESP)", 
+    CurrentValue = false, 
+    Callback = function(v) 
+        Settings.ESP.TeamCheck = v 
+    end
+})
+
+VisualTab:CreateToggle({
+    Name = "Distance ESP", 
+    CurrentValue = true, 
+    Callback = function(v) 
+        Settings.ESP.Distance = v 
+    end
+})
+
+VisualTab:CreateToggle({
+    Name = "Tracers", 
+    CurrentValue = true, 
+    Callback = function(v) 
+        Settings.ESP.Tracers = v 
+    end
+})
+
+VisualTab:CreateToggle({
+    Name = "Hitbox Expander", 
+    CurrentValue = false, 
+    Callback = function(v) 
+        Settings.Hitbox.Enabled = v 
+        UpdateAllHitboxes() 
+    end
+})
+
+VisualTab:CreateSlider({
+    Name = "Hitbox Size", 
+    Range = {5, 100}, 
+    Increment = 1, 
+    CurrentValue = 12, 
+    Callback = function(v) 
+        Settings.Hitbox.Size = v 
+        if Settings.Hitbox.Enabled then 
+            UpdateAllHitboxes() 
+        end 
+    end
+})
+
+VisualTab:CreateToggle({
+    Name = "Hitbox Team Check", 
+    CurrentValue = false, 
+    Callback = function(v) 
+        Settings.Hitbox.TeamCheck = v 
+        UpdateAllHitboxes() 
+    end
+})
+
+-- ==================== AIM GUI ====================
+local fov = 136
 local FOVring = Drawing.new("Circle")
 FOVring.Visible = false
 FOVring.Thickness = 2
 FOVring.Color = Color3.fromRGB(128, 0, 128)
 FOVring.Filled = false
 FOVring.Radius = fov
-FOVring.Position = Cam.ViewportSize / 2
+FOVring.Position = Camera.ViewportSize / 2
 
 local isAiming = false
 local raycastParams = RaycastParams.new()
 raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 
--- --- TẠO GIAO DIỆN (UI) ---
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Parent = game.CoreGui
 
--- Khung chứa chính để dễ dàng kéo thả cả cụm UI cùng lúc
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.new(0, 150, 0, 95)
 MainFrame.Position = UDim2.new(0, 10, 0, 10)
@@ -311,7 +613,6 @@ ToggleButton.Font = Enum.Font.GothamBold
 ToggleButton.TextSize = 14
 ToggleButton.Parent = MainFrame
 
--- --- THÀNH PHẦN THANH FOV MỚI ---
 local SliderBackground = Instance.new("Frame")
 SliderBackground.Size = UDim2.new(1, 0, 0, 45)
 SliderBackground.Position = UDim2.new(0, 0, 0, 45)
@@ -339,28 +640,22 @@ SliderTrack.Parent = SliderBackground
 local SliderButton = Instance.new("TextButton")
 SliderButton.Size = UDim2.new(0, 14, 0, 14)
 SliderButton.AnchorPoint = Vector2.new(0.5, 0.5)
-SliderButton.Position = UDim2.new(0.5, 0, 0.5, 0) -- Sẽ tự động tính toán lại vị trí dựa trên giá trị fov mặc định
+SliderButton.Position = UDim2.new(0.5, 0, 0.5, 0)
 SliderButton.BackgroundColor3 = Color3.fromRGB(128, 0, 128)
 SliderButton.Text = ""
 SliderButton.Parent = SliderTrack
 
--- Định nghĩa giới hạn FOV (Min / Max)
 local minFov = 50
 local maxFov = 300
 
--- Đặt vị trí nút trượt ban đầu dựa trên giá trị biến `fov`
 local initialPercentage = math.clamp((fov - minFov) / (maxFov - minFov), 0, 1)
 SliderButton.Position = UDim2.new(initialPercentage, 0, 0.5, 0)
 
--- --- LOGIC XỬ LÝ ---
-
--- Cập nhật kích thước vòng FOV theo màn hình
 local function updateDrawings()
-    FOVring.Position = Cam.ViewportSize / 2
-    FOVring.Radius = fov * (Cam.ViewportSize.Y / 1080)
+    FOVring.Position = Camera.ViewportSize / 2
+    FOVring.Radius = fov * (Camera.ViewportSize.Y / 1080)
 end
 
--- Dự đoán vị trí di chuyển (Prediction)
 local function predictPos(targetChar)
     local rootPart = targetChar:FindFirstChild("HumanoidRootPart")
     local head = targetChar:FindFirstChild("Head")
@@ -374,35 +669,33 @@ local function predictPos(targetChar)
     return basePosition + headOffset
 end
 
--- Tìm kiếm Người chơi gần tâm màn hình nhất
 local function getTarget()
     local nearest = nil
     local minDistance = math.huge
-    local viewportCenter = Cam.ViewportSize / 2
+    local viewportCenter = Camera.ViewportSize / 2
     
-    if Player.Character then
-        raycastParams.FilterDescendantsInstances = {Player.Character}
+    if LocalPlayer.Character then
+        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
     end
 
     for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= Player and p.Character and p.Team ~= Player.Team then
+        if p ~= LocalPlayer and p.Character and p.Team ~= LocalPlayer.Team then
             local char = p.Character
             local root = char:FindFirstChild("HumanoidRootPart")
             local hum = char:FindFirstChildOfClass("Humanoid")
             
             if root and hum and hum.Health > 0 then
                 local predictedPos = predictPos(char)
-                local screenPos, visible = Cam:WorldToViewportPoint(predictedPos)
+                local screenPos, visible = Camera:WorldToViewportPoint(predictedPos)
                 
                 if visible and screenPos.Z > 0 then
                     local ray = workspace:Raycast(
-                        Cam.CFrame.Position,
-                        (predictedPos - Cam.CFrame.Position).Unit * 1000,
+                        Camera.CFrame.Position,
+                        (predictedPos - Camera.CFrame.Position).Unit * 1000,
                         raycastParams
                     )
                     if ray and ray.Instance:IsDescendantOf(char) then
                         local distance = (Vector2.new(screenPos.X, screenPos.Y) - viewportCenter).Magnitude
-                        -- Kiểm tra theo fov động vừa chỉnh
                         if distance < minDistance and distance < fov then
                             minDistance = distance
                             nearest = char
@@ -415,16 +708,14 @@ local function getTarget()
     return nearest
 end
 
--- Di chuyển mượt Camera
 local function aim(targetPosition)
-    local currentCF = Cam.CFrame
+    local currentCF = Camera.CFrame
     local targetDirection = (targetPosition - currentCF.Position).Unit
     local smoothFactor = 0.581
     local newLookVector = currentCF.LookVector:Lerp(targetDirection, smoothFactor)
-    Cam.CFrame = CFrame.new(currentCF.Position, currentCF.Position + newLookVector)
+    Camera.CFrame = CFrame.new(currentCF.Position, currentCF.Position + newLookVector)
 end
 
--- Vòng lặp quét liên tục
 RunService.Heartbeat:Connect(function()
     updateDrawings()
     if isAiming then
@@ -436,7 +727,6 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Bật/Tắt bằng nút bấm
 ToggleButton.MouseButton1Click:Connect(function()
     isAiming = not isAiming
     FOVring.Visible = isAiming
@@ -444,7 +734,6 @@ ToggleButton.MouseButton1Click:Connect(function()
     ToggleButton.TextColor3 = isAiming and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
 end)
 
--- --- LOGIC DI CHUYỂN THANH TRƯỢT (SLIDER FOV) ---
 local sliderDragging = false
 
 SliderButton.InputBegan:Connect(function(input)
@@ -465,17 +754,14 @@ UserInputService.InputChanged:Connect(function(input)
         local trackAbsolutePosition = SliderTrack.AbsolutePosition.X
         local mouseX = input.Position.X
         
-        -- Tính toán phần trăm thanh trượt (0 đến 1)
         local percentage = math.clamp((mouseX - trackAbsolutePosition) / trackAbsoluteSize, 0, 1)
         SliderButton.Position = UDim2.new(percentage, 0, 0.5, 0)
         
-        -- Cập nhật giá trị FOV thực tế dựa trên phần trăm công thức nội suy tuyến tính
         fov = math.floor(minFov + (percentage * (maxFov - minFov)))
         SliderLabel.Text = "FOV: " .. fov
     end
 end)
 
--- --- GIỮ NGUYÊN CƠ CHẾ KÉO (DRAG) CHO CẢ KHUNG MENU ---
 local dragging, dragInput, dragStart, startPos
 
 local function update(input)
@@ -489,7 +775,7 @@ ToggleButton.InputBegan:Connect(function(input)
         dragStart = input.Position
         startPos = MainFrame.Position
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
+            if input.UserInputState == Enum.InputUserState.End then
                 dragging = false
             end
         end)
@@ -508,10 +794,14 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- Dọn dẹp bộ nhớ
 Players.PlayerRemoving:Connect(function(p)
-    if p == Player then
+    if p == LocalPlayer then
         FOVring:Remove()
         ScreenGui:Destroy()
     end
 end)
+
+print("=== LOADED SUCCESSFULLY ===")
+print("Bật Fly trong tab Main để bay!")
+print("WASD: Di chuyển | Space: Lên | Shift: Xuống")
+print("Đã gộp ESP và Hitbox vào tab Visual!")
