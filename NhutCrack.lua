@@ -3,10 +3,10 @@ local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 -- ==================== WINDOW ====================
 local Window = Rayfield:CreateWindow({
-    Name = "NhutCrack",
-    LoadingTitle = "ĐỤ MẸ CHỜ XÍU ĐI",
-    LoadingSubtitle = "by NhutDZ",
-    ConfigurationSaving = {Enabled = true, FolderName = "NhutCrack", FileName = "Settings"}
+    Name = "NhutCrack",
+    LoadingTitle = "ĐỤ MẸ CHỜ XÍU ĐI",
+    LoadingSubtitle = "by NhutDZ",
+    ConfigurationSaving = {Enabled = true, FolderName = "NhutCrack", FileName = "Settings"}
 })
 
 local MainTab = Window:CreateTab("Main", 4483362458)
@@ -14,9 +14,9 @@ local AimTab = Window:CreateTab("Aimbot", 4483362458)
 
 -- ==================== SETTINGS ====================
 local Settings = {
-    ESP = {Enabled = false, Tracers = true, Distance = true, TeamCheck = false},
-    Hitbox = {Enabled = false, Size = 12, TeamCheck = false, OriginalSizes = {}},
-    Aim = {Enabled = false, TeamCheck = false, Part = "HumanoidRootPart", Fov = 150, FovVisible = true, Smoothness = 1, IsTargeting = false}
+    ESP = {Enabled = false, Tracers = true, Distance = true, TeamCheck = false},
+    Hitbox = {Enabled = false, Size = 12, TeamCheck = false, OriginalSizes = {}},
+    Aim = {Enabled = false, TeamCheck = false, Part = "HumanoidRootPart", Fov = 150, FovVisible = true, Smoothness = 1, IsTargeting = false}
 }
 
 local FOLDER_NAME = "NhutESP"
@@ -35,167 +35,233 @@ FovCircle.Filled = false
 
 -- ==================== UTILITY ====================
 local function GetLocalRoot()
-    local char = LocalPlayer.Character
-    return char and char:FindFirstChild("HumanoidRootPart")
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
 end
 
 local function GetRoot(character)
-    return character and character:FindFirstChild("HumanoidRootPart")
+    return character and character:FindFirstChild("HumanoidRootPart")
 end
 
 local function IsTeammate(plr)
-    if not Settings.ESP.TeamCheck and not Settings.Hitbox.TeamCheck and not Settings.Aim.TeamCheck then return false end
-    if not plr or not LocalPlayer then return false end
-    return LocalPlayer.Team == plr.Team and LocalPlayer.Team ~= nil
+    if not Settings.ESP.TeamCheck and not Settings.Hitbox.TeamCheck and not Settings.Aim.TeamCheck then return false end
+    if not plr or not LocalPlayer then return false end
+    return LocalPlayer.Team == plr.Team and LocalPlayer.Team ~= nil
 end
+
+-- ==================== AIMBOT LOGIC (FORCE REWRITE) ====================
+local function GetClosestPlayerToCenter()
+    local closestPlayer = nil
+    local shortestDistance = Settings.Aim.Fov
+    local centerScreen = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and not IsTeammate(plr) then
+            local targetPart = plr.Character:FindFirstChild(Settings.Aim.Part)
+            local humanoid = plr.Character:FindFirstChildOfClass("Humanoid")
+            
+            if targetPart and humanoid and humanoid.Health > 0 then
+                local pos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                if onScreen then
+                    local distance = (Vector2.new(pos.X, pos.Y) - centerScreen).Magnitude
+                    if distance < shortestDistance then
+                        closestPlayer = plr
+                        shortestDistance = distance
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+-- Nhận diện nhấn giữ chuột phải để Aimbot
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        Settings.Aim.IsTargeting = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        Settings.Aim.IsTargeting = false
+    end
+end)
+
+-- Vòng lặp vẽ FOV cố định
+RunService.RenderStepped:Connect(function()
+    local centerScreen = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FovCircle.Visible = Settings.Aim.Enabled and Settings.Aim.FovVisible
+    FovCircle.Radius = Settings.Aim.Fov
+    FovCircle.Position = centerScreen
+end)
+
+-- GIẢI PHÁP TRIỆT ĐỂ: Ép luồng ưu tiên Camera cao hơn hệ thống của Game (Bypass đè CFrame)
+RunService:BindToRenderStep("NhutAimbotForce", Enum.RenderPriority.Camera.Value + 1, function()
+    if Settings.Aim.Enabled and Settings.Aim.IsTargeting then
+        local targetPlr = GetClosestPlayerToCenter()
+        if targetPlr and targetPlr.Character then
+            local targetPart = targetPlr.Character:FindFirstChild(Settings.Aim.Part)
+            if targetPart then
+                -- Tính toán hướng xoay ép thẳng vào mục tiêu
+                local currentCFrame = Camera.CFrame
+                local targetCFrame = CFrame.lookAt(currentCFrame.Position, targetPart.Position)
+                
+                -- Thực hiện Lerp mượt mà dựa trên độ ưu tiên cao hơn game
+                Camera.CFrame = currentCFrame:Lerp(targetCFrame, 1 / Settings.Aim.Smoothness)
+            end
+        end
+    end
+end)
 
 -- ==================== CLEANUP ====================
 local function CleanupPlayer(plr)
-    if plr.Character and plr.Character:FindFirstChild(FOLDER_NAME) then
-        plr.Character[FOLDER_NAME]:Destroy()
-    end
-    Settings.Hitbox.OriginalSizes[plr] = nil
+    if plr.Character and plr.Character:FindFirstChild(FOLDER_NAME) then
+        plr.Character[FOLDER_NAME]:Destroy()
+    end
+    Settings.Hitbox.OriginalSizes[plr] = nil
 end
 
 -- ==================== HITBOX ====================
 local function ApplyHitbox(character, plr)
-    if not character or not plr or plr == LocalPlayer then return end
-    local root = GetRoot(character)
-    if not root then return end
-    
-    if not Settings.Hitbox.OriginalSizes[plr] then
-        Settings.Hitbox.OriginalSizes[plr] = root.Size
-    end
-    
-    if Settings.Hitbox.Enabled and not (Settings.Hitbox.TeamCheck and IsTeammate(plr)) then
-        root.Size = Vector3.new(Settings.Hitbox.Size, Settings.Hitbox.Size, Settings.Hitbox.Size)
-        root.Transparency = 0.6
-        root.CanCollide = false
-        root.Color = Color3.fromRGB(255, 0, 0)
-    else
-        if Settings.Hitbox.OriginalSizes[plr] then
-            root.Size = Settings.Hitbox.OriginalSizes[plr]
-        end
-        root.Transparency = 1
-        root.CanCollide = true
-        root.Color = Color3.fromRGB(27, 42, 53)
-    end
+    if not character or not plr or plr == LocalPlayer then return end
+    local root = GetRoot(character)
+    if not root then return end
+    
+    if not Settings.Hitbox.OriginalSizes[plr] then
+        Settings.Hitbox.OriginalSizes[plr] = root.Size
+    end
+    
+    if Settings.Hitbox.Enabled and not (Settings.Hitbox.TeamCheck and IsTeammate(plr)) then
+        root.Size = Vector3.new(Settings.Hitbox.Size, Settings.Hitbox.Size, Settings.Hitbox.Size)
+        root.Transparency = 0.6
+        root.CanCollide = false
+        root.Color = Color3.fromRGB(255, 0, 0)
+    else
+        if Settings.Hitbox.OriginalSizes[plr] then
+            root.Size = Settings.Hitbox.OriginalSizes[plr]
+        end
+        root.Transparency = 1
+        root.CanCollide = true
+        root.Color = Color3.fromRGB(27, 42, 53)
+    end
 end
 
 local function UpdateAllHitboxes()
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr.Character then ApplyHitbox(plr.Character, plr) end
-    end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr.Character then ApplyHitbox(plr.Character, plr) end
+    end
 end
 
 -- ==================== ESP ====================
 local function CreateESP(plr)
-    if plr == LocalPlayer then return end
-    
-    local function Apply(character)
-        if not character or not Settings.ESP.Enabled then return end
-        if Settings.ESP.TeamCheck and IsTeammate(plr) then return end
-        
-        local root = GetRoot(character)
-        if not root then return end
-        
-        if character:FindFirstChild(FOLDER_NAME) then character[FOLDER_NAME]:Destroy() end
-        local folder = Instance.new("Folder", character)
-        folder.Name = FOLDER_NAME
-        
-        local highlight = Instance.new("Highlight", folder)
-        highlight.Adornee = character
-        highlight.FillColor = Color3.fromRGB(255, 0, 0)
-        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-        highlight.FillTransparency = 0.5
-        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        
-        if Settings.ESP.Tracers then
-            local line = Instance.new("LineHandleAdornment", folder)
-            line.Name = "TracerLine"
-            line.Thickness = 3
-            line.Color3 = Color3.fromRGB(255, 0, 0)
-            line.AlwaysOnTop = true
-            line.Adornee = workspace
-        end
-        
-        if Settings.ESP.Distance then
-            local billboard = Instance.new("BillboardGui", folder)
-            billboard.Adornee = root
-            billboard.Size = UDim2.new(0, 120, 0, 30)
-            billboard.StudsOffset = Vector3.new(0, 3, 0)
-            billboard.AlwaysOnTop = true
-            
-            local label = Instance.new("TextLabel", billboard)
-            label.Size = UDim2.new(1, 0, 1, 0)
-            label.BackgroundTransparency = 1
-            label.TextColor3 = Color3.new(1, 1, 1)
-            label.TextStrokeTransparency = 0
-            label.TextSize = 14
-            label.Font = Enum.Font.GothamBold
-            label.Text = "[0]"
-            label.Name = "DistanceLabel"
-        end
-    end
-    
-    if plr.Character then Apply(plr.Character) end
-    plr.CharacterAdded:Connect(function(char)
-        task.wait(0.5)
-        Apply(char)
-        UpdateAllHitboxes()
-    end)
+    if plr == LocalPlayer then return end
+    
+    local function Apply(character)
+        if not character or not Settings.ESP.Enabled then return end
+        if Settings.ESP.TeamCheck and IsTeammate(plr) then return end
+        
+        local root = GetRoot(character)
+        if not root then return end
+        
+        if character:FindFirstChild(FOLDER_NAME) then character[FOLDER_NAME]:Destroy() end
+        local folder = Instance.new("Folder", character)
+        folder.Name = FOLDER_NAME
+        
+        local highlight = Instance.new("Highlight", folder)
+        highlight.Adornee = character
+        highlight.FillColor = Color3.fromRGB(255, 0, 0)
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.FillTransparency = 0.5
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        
+        if Settings.ESP.Tracers then
+            local line = Instance.new("LineHandleAdornment", folder)
+            line.Name = "TracerLine"
+            line.Thickness = 3
+            line.Color3 = Color3.fromRGB(255, 0, 0)
+            line.AlwaysOnTop = true
+            line.Adornee = workspace
+        end
+        
+        if Settings.ESP.Distance then
+            local billboard = Instance.new("BillboardGui", folder)
+            billboard.Adornee = root
+            billboard.Size = UDim2.new(0, 120, 0, 30)
+            billboard.StudsOffset = Vector3.new(0, 3, 0)
+            billboard.AlwaysOnTop = true
+            
+            local label = Instance.new("TextLabel", billboard)
+            label.Size = UDim2.new(1, 0, 1, 0)
+            label.BackgroundTransparency = 1
+            label.TextColor3 = Color3.new(1, 1, 1)
+            label.TextStrokeTransparency = 0
+            label.TextSize = 14
+            label.Font = Enum.Font.GothamBold
+            label.Text = "[0]"
+            label.Name = "DistanceLabel"
+        end
+    end
+    
+    if plr.Character then Apply(plr.Character) end
+    plr.CharacterAdded:Connect(function(char)
+        task.wait(0.5)
+        Apply(char)
+        UpdateAllHitboxes()
+    end)
 end
 
 RunService.RenderStepped:Connect(function()
-    local myRoot = GetLocalRoot()
-    if not myRoot then return end
-    
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character then
-            local folder = plr.Character:FindFirstChild(FOLDER_NAME)
-            local root = GetRoot(plr.Character)
-            
-            if folder and root then
-                if Settings.ESP.Enabled and Settings.ESP.Distance then
-                    local label = folder:FindFirstChild("DistanceLabel", true)
-                    if label then
-                        label.Text = string.format("[%d]", math.floor((root.Position - myRoot.Position).Magnitude))
-                    end
-                end
-                
-                local line = folder:FindFirstChild("TracerLine")
-                if line and line:IsA("LineHandleAdornment") then
-                    if Settings.ESP.Enabled and Settings.ESP.Tracers then
-                        local startPos = myRoot.Position - Vector3.new(0, 2, 0)
-                        line.CFrame = CFrame.new(startPos, root.Position)
-                        line.Length = (root.Position - startPos).Magnitude
-                    else
-                        line.Length = 0
-                    end
-                end
-            end
-        end
-    end
+    local myRoot = GetLocalRoot()
+    if not myRoot then return end
+    
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local folder = plr.Character:FindFirstChild(FOLDER_NAME)
+            local root = GetRoot(plr.Character)
+            
+            if folder and root then
+                if Settings.ESP.Enabled and Settings.ESP.Distance then
+                    local label = folder:FindFirstChild("DistanceLabel", true)
+                    if label then
+                        label.Text = string.format("[%d]", math.floor((root.Position - myRoot.Position).Magnitude))
+                    end
+                end
+                
+                local line = folder:FindFirstChild("TracerLine")
+                if line and line:IsA("LineHandleAdornment") then
+                    if Settings.ESP.Enabled and Settings.ESP.Tracers then
+                        local startPos = myRoot.Position - Vector3.new(0, 2, 0)
+                        line.CFrame = CFrame.new(startPos, root.Position)
+                        line.Length = (root.Position - startPos).Magnitude
+                    else
+                        line.Length = 0
+                    end
+                end
+            end
+        end
+    end
 end)
 
 task.spawn(function()
-    while task.wait(0.3) do
-        if Settings.Hitbox.Enabled then UpdateAllHitboxes() end
-    end
+    while task.wait(0.3) do
+        if Settings.Hitbox.Enabled then UpdateAllHitboxes() end
+    end
 end)
 
 Players.PlayerAdded:Connect(function(plr)
-    CreateESP(plr)
-    plr.CharacterAdded:Connect(function() task.wait(0.5) UpdateAllHitboxes() end)
+    CreateESP(plr)
+    plr.CharacterAdded:Connect(function() task.wait(0.5) UpdateAllHitboxes() end)
 end)
 Players.PlayerRemoving:Connect(CleanupPlayer)
 
 -- ==================== UI TAB MAIN ====================
 MainTab:CreateToggle({Name = "ESP + Tia Chỉ", CurrentValue = false, Callback = function(v)
-    Settings.ESP.Enabled = v
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if not v and plr.Character and plr.Character:FindFirstChild(FOLDER_NAME) then plr.Character[FOLDER_NAME]:Destroy() else CreateESP(plr) end
-    end
+    Settings.ESP.Enabled = v
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if not v and plr.Character and plr.Character:FindFirstChild(FOLDER_NAME) then plr.Character[FOLDER_NAME]:Destroy() else CreateESP(plr) end
+    end
 end})
 MainTab:CreateToggle({Name = "Team Check (ESP)", CurrentValue = false, Callback = function(v) Settings.ESP.TeamCheck = v end})
 MainTab:CreateToggle({Name = "Distance ESP", CurrentValue = true, Callback = function(v) Settings.ESP.Distance = v end})
@@ -204,7 +270,7 @@ MainTab:CreateToggle({Name = "Hitbox Expander", CurrentValue = false, Callback =
 MainTab:CreateSlider({Name = "Hitbox Size", Range = {5, 100}, Increment = 1, CurrentValue = 12, Callback = function(v) Settings.Hitbox.Size = v if Settings.Hitbox.Enabled then UpdateAllHitboxes() end end})
 MainTab:CreateToggle({Name = "Hitbox Team Check", CurrentValue = false, Callback = function(v) Settings.Hitbox.TeamCheck = v UpdateAllHitboxes() end})
 
--- made by yee_kunkun(my roblox user name haha)
+-- ==-- made by yee_kunkun(my roblox user name haha)
 local fov = 136
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
