@@ -270,8 +270,8 @@ MainTab:CreateToggle({Name = "Hitbox Expander", CurrentValue = false, Callback =
 MainTab:CreateSlider({Name = "Hitbox Size", Range = {5, 100}, Increment = 1, CurrentValue = 12, Callback = function(v) Settings.Hitbox.Size = v if Settings.Hitbox.Enabled then UpdateAllHitboxes() end end})
 MainTab:CreateToggle({Name = "Hitbox Team Check", CurrentValue = false, Callback = function(v) Settings.Hitbox.TeamCheck = v UpdateAllHitboxes() end})
 
--- ==-- made by yee_kunkun(my roblox user name haha)
-local fov = 136
+-- made by yee_kunkun(my roblox user name haha)
+local fov = 136 -- Đây là FOV mặc định ban đầu
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
@@ -290,18 +290,69 @@ local isAiming = false
 local raycastParams = RaycastParams.new()
 raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 
+-- --- TẠO GIAO DIỆN (UI) ---
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Parent = game.CoreGui
 
+-- Khung chứa chính để dễ dàng kéo thả cả cụm UI cùng lúc
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 150, 0, 95)
+MainFrame.Position = UDim2.new(0, 10, 0, 10)
+MainFrame.BackgroundTransparency = 1
+MainFrame.Parent = ScreenGui
+
 local ToggleButton = Instance.new("TextButton")
-ToggleButton.Size = UDim2.new(0, 120, 0, 40)
-ToggleButton.Position = UDim2.new(0, 10, 0, 10)
+ToggleButton.Size = UDim2.new(1, 0, 0, 40)
+ToggleButton.Position = UDim2.new(0, 0, 0, 0)
 ToggleButton.Text = "AIM PLAYER: OFF"
 ToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 ToggleButton.TextColor3 = Color3.fromRGB(255, 50, 50)
 ToggleButton.Font = Enum.Font.GothamBold
 ToggleButton.TextSize = 14
-ToggleButton.Parent = ScreenGui
+ToggleButton.Parent = MainFrame
+
+-- --- THÀNH PHẦN THANH FOV MỚI ---
+local SliderBackground = Instance.new("Frame")
+SliderBackground.Size = UDim2.new(1, 0, 0, 45)
+SliderBackground.Position = UDim2.new(0, 0, 0, 45)
+SliderBackground.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+SliderBackground.BorderSizePixel = 0
+SliderBackground.Parent = MainFrame
+
+local SliderLabel = Instance.new("TextLabel")
+SliderLabel.Size = UDim2.new(1, 0, 0, 20)
+SliderLabel.Position = UDim2.new(0, 0, 0, 2)
+SliderLabel.Text = "FOV: " .. fov
+SliderLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+SliderLabel.BackgroundTransparency = 1
+SliderLabel.Font = Enum.Font.Gotham
+SliderLabel.TextSize = 12
+SliderLabel.Parent = SliderBackground
+
+local SliderTrack = Instance.new("Frame")
+SliderTrack.Size = UDim2.new(0.85, 0, 0, 6)
+SliderTrack.Position = UDim2.new(0.075, 0, 0, 28)
+SliderTrack.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+SliderTrack.BorderSizePixel = 0
+SliderTrack.Parent = SliderBackground
+
+local SliderButton = Instance.new("TextButton")
+SliderButton.Size = UDim2.new(0, 14, 0, 14)
+SliderButton.AnchorPoint = Vector2.new(0.5, 0.5)
+SliderButton.Position = UDim2.new(0.5, 0, 0.5, 0) -- Sẽ tự động tính toán lại vị trí dựa trên giá trị fov mặc định
+SliderButton.BackgroundColor3 = Color3.fromRGB(128, 0, 128)
+SliderButton.Text = ""
+SliderButton.Parent = SliderTrack
+
+-- Định nghĩa giới hạn FOV (Min / Max)
+local minFov = 50
+local maxFov = 300
+
+-- Đặt vị trí nút trượt ban đầu dựa trên giá trị biến `fov`
+local initialPercentage = math.clamp((fov - minFov) / (maxFov - minFov), 0, 1)
+SliderButton.Position = UDim2.new(initialPercentage, 0, 0.5, 0)
+
+-- --- LOGIC XỬ LÝ ---
 
 -- Cập nhật kích thước vòng FOV theo màn hình
 local function updateDrawings()
@@ -309,7 +360,7 @@ local function updateDrawings()
     FOVring.Radius = fov * (Cam.ViewportSize.Y / 1080)
 end
 
--- Dự đoán vị trí di chuyển (Prediction) dựa trên vận tốc Player
+-- Dự đoán vị trí di chuyển (Prediction)
 local function predictPos(targetChar)
     local rootPart = targetChar:FindFirstChild("HumanoidRootPart")
     local head = targetChar:FindFirstChild("Head")
@@ -317,25 +368,23 @@ local function predictPos(targetChar)
         return head and head.Position or rootPart and rootPart.Position
     end
     local velocity = rootPart.Velocity
-    local predictionTime = 0.02 -- Thời gian dự đoán (giữ nguyên độ chuẩn của bạn)
+    local predictionTime = 0.02
     local basePosition = rootPart.Position + velocity * predictionTime
     local headOffset = head.Position - rootPart.Position
     return basePosition + headOffset
 end
 
--- Tìm kiếm Người chơi (Player) gần tâm màn hình nhất
+-- Tìm kiếm Người chơi gần tâm màn hình nhất
 local function getTarget()
     local nearest = nil
     local minDistance = math.huge
     local viewportCenter = Cam.ViewportSize / 2
     
-    -- Loại trừ nhân vật của mình khỏi Raycast tránh tự khóa chính mình
     if Player.Character then
         raycastParams.FilterDescendantsInstances = {Player.Character}
     end
 
     for _, p in ipairs(Players:GetPlayers()) do
-        -- Kiểm tra: Không phải mình, chung team (Team Check), nhân vật tồn tại và còn sống
         if p ~= Player and p.Character and p.Team ~= Player.Team then
             local char = p.Character
             local root = char:FindFirstChild("HumanoidRootPart")
@@ -351,10 +400,9 @@ local function getTarget()
                         (predictedPos - Cam.CFrame.Position).Unit * 1000,
                         raycastParams
                     )
-                    -- Kiểm tra xem có bị tường cản vật lý hay không
                     if ray and ray.Instance:IsDescendantOf(char) then
                         local distance = (Vector2.new(screenPos.X, screenPos.Y) - viewportCenter).Magnitude
-                        -- Nằm trong tầm FOV và là đứa gần tâm nhất
+                        -- Kiểm tra theo fov động vừa chỉnh
                         if distance < minDistance and distance < fov then
                             minDistance = distance
                             nearest = char
@@ -367,11 +415,11 @@ local function getTarget()
     return nearest
 end
 
--- Di chuyển mượt Camera về phía mục tiêu (Lerp Smooth)
+-- Di chuyển mượt Camera
 local function aim(targetPosition)
     local currentCF = Cam.CFrame
     local targetDirection = (targetPosition - currentCF.Position).Unit
-    local smoothFactor = 0.581 -- Giữ nguyên độ mượt gốc của bạn
+    local smoothFactor = 0.581
     local newLookVector = currentCF.LookVector:Lerp(targetDirection, smoothFactor)
     Cam.CFrame = CFrame.new(currentCF.Position, currentCF.Position + newLookVector)
 end
@@ -396,19 +444,50 @@ ToggleButton.MouseButton1Click:Connect(function()
     ToggleButton.TextColor3 = isAiming and Color3.fromRGB(50, 255, 50) or Color3.fromRGB(255, 50, 50)
 end)
 
--- Giữ nguyên cơ chế Kéo/Di chuyển (Drag) nút bấm của bạn
+-- --- LOGIC DI CHUYỂN THANH TRƯỢT (SLIDER FOV) ---
+local sliderDragging = false
+
+SliderButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliderDragging = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        sliderDragging = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if sliderDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local trackAbsoluteSize = SliderTrack.AbsoluteSize.X
+        local trackAbsolutePosition = SliderTrack.AbsolutePosition.X
+        local mouseX = input.Position.X
+        
+        -- Tính toán phần trăm thanh trượt (0 đến 1)
+        local percentage = math.clamp((mouseX - trackAbsolutePosition) / trackAbsoluteSize, 0, 1)
+        SliderButton.Position = UDim2.new(percentage, 0, 0.5, 0)
+        
+        -- Cập nhật giá trị FOV thực tế dựa trên phần trăm công thức nội suy tuyến tính
+        fov = math.floor(minFov + (percentage * (maxFov - minFov)))
+        SliderLabel.Text = "FOV: " .. fov
+    end
+end)
+
+-- --- GIỮ NGUYÊN CƠ CHẾ KÉO (DRAG) CHO CẢ KHUNG MENU ---
 local dragging, dragInput, dragStart, startPos
 
 local function update(input)
     local delta = input.Position - dragStart
-    ToggleButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 end
 
 ToggleButton.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
         dragStart = input.Position
-        startPos = ToggleButton.Position
+        startPos = MainFrame.Position
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
                 dragging = false
@@ -429,7 +508,7 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- Dọn dẹp bộ nhớ khi thoát game hoặc tắt script
+-- Dọn dẹp bộ nhớ
 Players.PlayerRemoving:Connect(function(p)
     if p == Player then
         FOVring:Remove()
